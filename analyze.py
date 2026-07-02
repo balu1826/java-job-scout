@@ -54,7 +54,7 @@ Sort by stars descending (5 stars first)."""
 
 
 def analyze_jobs(jobs: list[dict]) -> list[dict]:
-    """Send jobs to Groq llama-3.3-70b, get structured analysis back."""
+    """Send jobs to Groq llama-3.3-70b in batches, get structured analysis back."""
 
     # Trim descriptions to avoid token overload
     slim_jobs = []
@@ -67,46 +67,59 @@ def analyze_jobs(jobs: list[dict]) -> list[dict]:
             "date_posted":     str(j.get("postedAt", "")),
             "seniority":       j.get("seniorityLevel", ""),
             "employment_type": j.get("employmentType", ""),
-            "description":     (j.get("descriptionText") or "")[:800],
+            "description":     (j.get("descriptionText") or "")[:500],  # Reduce from 800 to 500
         })
 
-    user_prompt = USER_PROMPT_TEMPLATE.format(
-        resume=RESUME_TEXT,
-        count=len(slim_jobs),
-        jobs_json=json.dumps(slim_jobs, indent=2),
-    )
+    # Process in batches of 10 jobs instead of all 30 at once
+    batch_size = 10
+    all_analyzed = []
+    
+    for batch_idx in range(0, len(slim_jobs), batch_size):
+        batch = slim_jobs[batch_idx:batch_idx + batch_size]
+        
+        # Trim resume to first 2000 chars to save tokens
+        resume_trimmed = RESUME_TEXT[:2000]
+        
+        user_prompt = USER_PROMPT_TEMPLATE.format(
+            resume=resume_trimmed,
+            count=len(batch),
+            jobs_json=json.dumps(batch, indent=2),
+        )
 
-    print(f"[analyze] Sending {len(slim_jobs)} jobs to Groq (llama-3.3-70b) ...")
+        print(f"[analyze] Sending batch {batch_idx // batch_size + 1} ({len(batch)} jobs) to Groq ...")
 
-    response = requests.post(
-        GROQ_URL,
-        headers={
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type":  "application/json",
-        },
-        json={
-            "model":       GROQ_MODEL,
-            "temperature": 0.3,
-            "max_tokens":  8000,
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user",   "content": user_prompt},
-            ],
-        },
-        timeout=120,
-    )
-    response.raise_for_status()
+        response = requests.post(
+            GROQ_URL,
+            headers={
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type":  "application/json",
+            },
+            json={
+                "model":       GROQ_MODEL,
+                "temperature": 0.3,
+                "max_tokens":  4000,  # Reduce from 8000
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user",   "content": user_prompt},
+                ],
+            },
+            timeout=120,
+        )
+        response.raise_for_status()
 
-    raw_text = response.json()["choices"][0]["message"]["content"].strip()
+        raw_text = response.json()["choices"][0]["message"]["content"].strip()
 
-    # Strip markdown fences if model adds them
-    if raw_text.startswith("```"):
-        raw_text = raw_text.split("\n", 1)[1]
-        raw_text = raw_text.rsplit("```", 1)[0]
+        # Strip markdown fences if model adds them
+        if raw_text.startswith("```"):
+            raw_text = raw_text.split("\n", 1)[1]
+            raw_text = raw_text.rsplit("```", 1)[0]
 
-    analyzed = json.loads(raw_text)
-    print(f"[analyze] Groq returned analysis for {len(analyzed)} jobs")
-    return analyzed
+        batch_analyzed = json.loads(raw_text)
+        all_analyzed.extend(batch_analyzed)
+        print(f"[analyze] Batch complete. Total analyzed so far: {len(all_analyzed)}")
+    
+    print(f"[analyze] Groq returned analysis for {len(all_analyzed)} jobs")
+    return all_analyzed
 
 
 if __name__ == "__main__":
