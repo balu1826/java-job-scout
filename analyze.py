@@ -1,0 +1,121 @@
+"""
+analyze.py  —  Groq Edition (FREE)
+Sends scraped jobs + Balu's resume to Groq API (llama-3.3-70b).
+Returns structured JSON analysis for each job.
+Groq is completely free with generous rate limits.
+"""
+
+import os
+import json
+import requests
+from pathlib import Path
+
+GROQ_API_KEY = os.environ["GROQ_API_KEY"]
+GROQ_MODEL   = "llama-3.3-70b-versatile"
+GROQ_URL     = "https://api.groq.com/openai/v1/chat/completions"
+
+RESUME_TEXT  = Path("resume.txt").read_text()
+
+SYSTEM_PROMPT = """You are a brutally honest career advisor specializing in Java backend developer roles in India.
+You analyze job descriptions against a candidate's resume and return structured JSON assessments.
+You never sugarcoat. You are direct, specific, and actionable.
+Always respond with ONLY valid JSON array — no markdown, no preamble, no explanation outside the JSON."""
+
+USER_PROMPT_TEMPLATE = """Here is the candidate's resume:
+<resume>
+{resume}
+</resume>
+
+Here are {count} job descriptions scraped from LinkedIn today. Analyze EACH job against the resume.
+
+<jobs>
+{jobs_json}
+</jobs>
+
+For EACH job, return a JSON object with exactly these fields:
+- "title": job title (string)
+- "company": company name (string)
+- "location": location (string)
+- "link": LinkedIn URL (string)
+- "date_posted": date posted (string)
+- "seniority": seniority level from the posting (string)
+- "employment_type": full-time / internship / contract (string)
+- "stars": match score 1-5 as integer (5=perfect match, 1=not suitable)
+- "star_label": visual stars like "★★★★★" or "★★★☆☆" (string)
+- "skills_matched": list of specific skills from the JD that the candidate HAS (list of strings)
+- "skills_missing": list of specific skills from the JD that the candidate is MISSING (list of strings)
+- "is_fresher_friendly": true if the job is genuinely suitable for 0-1 yr experience (boolean)
+- "fresher_reason": one sentence explaining why it is or isn't fresher-friendly (string)
+- "verdict": one brutally honest sentence about fit — be specific, not generic (string)
+- "apply_priority": "APPLY NOW" | "STRONG CONSIDER" | "STRETCH GOAL" | "SKIP"
+
+Return a JSON array of objects, one per job. Nothing else. No markdown.
+Sort by stars descending (5 stars first)."""
+
+
+def analyze_jobs(jobs: list[dict]) -> list[dict]:
+    """Send jobs to Groq llama-3.3-70b, get structured analysis back."""
+
+    # Trim descriptions to avoid token overload
+    slim_jobs = []
+    for j in jobs:
+        slim_jobs.append({
+            "title":           j.get("title", ""),
+            "company":         j.get("companyName", ""),
+            "location":        j.get("location", ""),
+            "link":            j.get("link", ""),
+            "date_posted":     str(j.get("postedAt", "")),
+            "seniority":       j.get("seniorityLevel", ""),
+            "employment_type": j.get("employmentType", ""),
+            "description":     (j.get("descriptionText") or "")[:800],
+        })
+
+    user_prompt = USER_PROMPT_TEMPLATE.format(
+        resume=RESUME_TEXT,
+        count=len(slim_jobs),
+        jobs_json=json.dumps(slim_jobs, indent=2),
+    )
+
+    print(f"[analyze] Sending {len(slim_jobs)} jobs to Groq (llama-3.3-70b) ...")
+
+    response = requests.post(
+        GROQ_URL,
+        headers={
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type":  "application/json",
+        },
+        json={
+            "model":       GROQ_MODEL,
+            "temperature": 0.3,
+            "max_tokens":  8000,
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user",   "content": user_prompt},
+            ],
+        },
+        timeout=120,
+    )
+    response.raise_for_status()
+
+    raw_text = response.json()["choices"][0]["message"]["content"].strip()
+
+    # Strip markdown fences if model adds them
+    if raw_text.startswith("```"):
+        raw_text = raw_text.split("\n", 1)[1]
+        raw_text = raw_text.rsplit("```", 1)[0]
+
+    analyzed = json.loads(raw_text)
+    print(f"[analyze] Groq returned analysis for {len(analyzed)} jobs")
+    return analyzed
+
+
+if __name__ == "__main__":
+    dummy = [{
+        "title": "Java Developer", "companyName": "TestCo",
+        "location": "Hyderabad", "link": "https://linkedin.com",
+        "postedAt": "2026-07-01", "seniorityLevel": "Entry level",
+        "employmentType": "Full-time",
+        "descriptionText": "We need Java Spring Boot developer, 0-1 yr exp, REST APIs, MySQL."
+    }]
+    result = analyze_jobs(dummy)
+    print(json.dumps(result, indent=2))

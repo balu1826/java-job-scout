@@ -1,0 +1,45 @@
+Battula Bala Kotaiah
+Email: balubattula1826@gmail.com | Phone: +91 9063858027
+
+PROFESSIONAL SUMMARY
+Motivated Java Backend Developer with 6 months of apprenticeship experience developing RESTful APIs
+using Java, Spring Boot, Spring Data JPA, and SQL databases. Experienced in implementing JWT-based
+authentication, RBAC/PBAC authorization, auditing, and scalable backend services.
+
+SKILLS
+- Programming Languages: Java
+- Databases: MySQL, PostgreSQL
+- Frameworks and Libraries: Spring Boot, Spring Data JPA
+- Tools: Spring Tool Suite (STS), Postman
+- Soft Skills: Problem-solving, Communication, Quick learner, Adaptability
+
+EXPERIENCE
+Apprenticeship at Tekworks – Graduate Apprentice Developer (Dec 2025 – May 2026)
+OSU Clinical Trial Management System
+- Authorization Framework: Designed and implemented database-driven RBAC and PBAC solutions,
+  enabling dynamic management of roles, permissions, and policy-based access controls.
+- Audit Logging: Developed an auditing mechanism to track entity-level changes, capturing
+  modification details, timestamps, and user activity for complete traceability.
+- Request Monitoring: Built custom interceptors for rate limiting and API performance monitoring,
+  providing request throttling, execution-time tracking, and enhanced system observability.
+
+PROJECTS
+Doctor Appointment System
+- Developed a Doctor Appointment System supporting patient and doctor registration, appointment
+  booking, scheduling, and doctor management.
+- Implemented secure JWT-based role authorization for Admin, Doctor, and Patient roles using
+  Spring Boot, JPA, and MySQL.
+- Built REST APIs with validation and CRUD operations, incorporated centralized exception handling
+  and interceptor-based logging, and tested all endpoints using Postman.
+
+ATS Resume Builder
+- Developed an AI-powered Resume Builder using Spring Boot and Groq AI to generate ATS-optimized
+  resumes from job descriptions.
+- Built REST APIs for prompt processing and AI integration, implemented dynamic HTML/CSS resume
+  generation, and ensured reliability through logging, error handling, fallback mechanisms,
+  and Postman testing.
+
+EDUCATION
+2021 - 2025: BTech (Computer Science) at RK College Of Engineering (CGPA: 7.47/10.0)
+2019 - 2021: Intermediate at Sri Saraswathi Junior College (Marks: 958/1000)
+2018 - 2019: Class 10th Zphs Pathapadu (GPA: 10.0/10.0)

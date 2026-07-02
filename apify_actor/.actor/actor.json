@@ -1,0 +1,11 @@
+{
+  "actorSpecification": 1,
+  "name": "java-job-scout",
+  "title": "Java Job Scout — Daily LinkedIn Jobs",
+  "description": "Scrapes LinkedIn for fresh Java fresher jobs daily, analyzes them with Groq AI, generates Excel report and emails it.",
+  "version": "1.0",
+  "buildTag": "latest",
+  "environmentVariables": [],
+  "dockerfile": "./Dockerfile",
+  "input": "./.actor/input_schema.json"
+}
