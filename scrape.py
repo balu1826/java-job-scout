@@ -9,7 +9,7 @@ import requests
 
 
 APIFY_TOKEN = os.environ["APIFY_API_TOKEN"]
-ACTOR_ID    = "curious_coder/linkedin-jobs-scraper"
+ACTOR_ID    = "hKByXkMQaC5Qt9UMN"
 BASE_URL    = "https://api.apify.com/v2"
 
 SEARCH_URLS = [
