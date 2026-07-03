@@ -110,13 +110,13 @@ def analyze_jobs(jobs: list[dict]) -> list[dict]:
     for attempt, wait in enumerate(wait_times, 1):
         try:
             response = requests.post(
-                GROQ_URL,
+                OPENAI_URL,
                 headers={
-                    "Authorization": f"Bearer {GROQ_API_KEY}",
+                    "Authorization": f"Bearer {OPENAI_API_KEY}",
                     "Content-Type":  "application/json",
                 },
                 json={
-                    "model":       GROQ_MODEL,
+                    "model":       OPENAI_MODEL,
                     "temperature": 0.2,
                     "max_tokens":  8000,
                     "messages": [
