@@ -89,7 +89,7 @@ def analyze_jobs(jobs: list[dict]) -> list[dict]:
         print(f"[analyze] Sending batch {batch_idx // batch_size + 1} ({len(batch)} jobs) to Groq ...")
 
         response = requests.post(
-            GROQ_URL,
+            OPENAI_URL,
             headers={
                 "Authorization": f"Bearer {OPENAI_API_KEY}",
                 "Content-Type":  "application/json",
