@@ -102,7 +102,7 @@ def analyze_jobs(jobs: list[dict]) -> list[dict]:
         jobs_json=json.dumps(slim_jobs, indent=1),
     )
 
-    print(f"[analyze] Sending all {len(slim_jobs)} jobs to Groq ({GROQ_MODEL}) in one request ...")
+    print(f"[analyze] Sending all {len(slim_jobs)} jobs to Groq ({OPENAI_MODEL}) in one request ...")
 
     # Exponential backoff: wait 15s, 30s, 60s between retries
     wait_times = [15, 30, 60]
