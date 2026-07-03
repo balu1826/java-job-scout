@@ -91,13 +91,13 @@ def analyze_jobs(jobs: list[dict]) -> list[dict]:
         response = requests.post(
             GROQ_URL,
             headers={
-                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Authorization": f"Bearer {OPENAI_API_KEY}",
                 "Content-Type":  "application/json",
             },
             json={
-                "model":       GROQ_MODEL,
+                "model":       OPENAI_MODEL,
                 "temperature": 0.3,
-                "max_tokens":  4000,  # Reduce from 8000
+                "max_tokens":  8000,  
                 "messages": [
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user",   "content": user_prompt},
