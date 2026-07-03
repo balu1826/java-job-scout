@@ -1,84 +1,88 @@
 """
-analyze.py  —  Groq Edition (FREE)
+analyze.py  —  Groq Edition (FREE) - Fixed Rate Limit Version
 Sends scraped jobs + Balu's resume to Groq API (llama-3.3-70b).
-Returns structured JSON analysis for each job.
-Groq is completely free with generous rate limits.
+Fixes:
+  - Sends ALL 30 jobs in ONE request (not batches) to avoid rate limits
+  - Trims job descriptions to 400 chars to stay under token limit
+  - Longer retry waits with exponential backoff
+  - Falls back to basic scoring if Groq fails
 """
 
 import os
 import json
+import time
 import requests
 from pathlib import Path
-import time
 
-OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
-OPENAI_MODEL   = "gpt-4o-mini"
-OPENAI_URL     = "https://api.openai.com/v1/chat/completions"
+GROQ_API_KEY = os.environ["GROQ_API_KEY"]
+GROQ_MODEL   = "llama-3.3-70b-versatile"
+GROQ_URL     = "https://api.groq.com/openai/v1/chat/completions"
 
 RESUME_TEXT  = Path("resume.txt").read_text()
 
-SYSTEM_PROMPT = """You are a brutally honest career advisor specializing in Java backend developer roles in India.
-You analyze job descriptions against a candidate's resume and return structured JSON assessments.
-You never sugarcoat. You are direct, specific, and actionable.
-Always respond with ONLY valid JSON array — no markdown, no preamble, no explanation outside the JSON."""
+SYSTEM_PROMPT = """You are a brutally honest career advisor for Java backend developer roles in India.
+Analyze job descriptions against a candidate resume and return ONLY a valid JSON array.
+No markdown, no preamble, no explanation — just the raw JSON array."""
 
-USER_PROMPT_TEMPLATE = """Here is the candidate's resume:
-<resume>
+USER_PROMPT_TEMPLATE = """Candidate resume:
 {resume}
-</resume>
 
-Here are {count} job descriptions scraped from LinkedIn today. Analyze EACH job against the resume.
+Analyze ALL {count} jobs below and return a JSON array with one object per job.
 
-<jobs>
+Jobs:
 {jobs_json}
-</jobs>
 
-For EACH job, return a JSON object with exactly these fields:
-- "title": job title (string)
-- "company": company name (string)
-- "location": location (string)
-- "link": LinkedIn URL (string)
-- "date_posted": date posted (string)
-- "seniority": seniority level from the posting (string)
-- "employment_type": full-time / internship / contract (string)
-- "stars": match score 1-5 as integer (5=perfect match, 1=not suitable)
-- "star_label": visual stars like "★★★★★" or "★★★☆☆" (string)
-- "skills_matched": list of specific skills from the JD that the candidate HAS (list of strings)
-- "skills_missing": list of specific skills from the JD that the candidate is MISSING (list of strings)
-- "is_fresher_friendly": true if the job is genuinely suitable for 0-1 yr experience (boolean)
-- "fresher_reason": one sentence explaining why it is or isn't fresher-friendly (string)
-- "verdict": one brutally honest sentence about fit — be specific, not generic (string)
-- "apply_priority": "APPLY NOW" | "STRONG CONSIDER" | "STRETCH GOAL" | "SKIP"
+Each object must have exactly these fields:
+- "title": string
+- "company": string  
+- "location": string
+- "link": string
+- "date_posted": string
+- "seniority": string
+- "employment_type": string
+- "stars": integer 1-5 (5=perfect match for this fresher candidate)
+- "star_label": string like "★★★★★"
+- "skills_matched": list of strings (skills candidate HAS)
+- "skills_missing": list of strings (skills candidate is MISSING)
+- "is_fresher_friendly": boolean
+- "fresher_reason": string (one sentence)
+- "verdict": string (one brutally honest sentence)
+- "apply_priority": one of "APPLY NOW" | "STRONG CONSIDER" | "STRETCH GOAL" | "SKIP"
 
-Return a JSON array of objects, one per job. Nothing else. No markdown.
-Sort by stars descending (5 stars first)."""
+Sort by stars descending. Return ONLY the JSON array, nothing else."""
 
 
-def create_fallback_job(job: dict) -> dict:
-    """Create a basic fallback analysis when API fails for a job."""
+def _fallback_entry(job: dict) -> dict:
+    """Basic fallback when Groq is unavailable."""
+    desc = (job.get("descriptionText") or "").lower()
+    has_spring  = "spring" in desc or "spring boot" in desc
+    has_java    = "java" in desc
+    is_fresher  = any(w in desc for w in ["fresher", "0-1", "entry level", "intern", "graduate"])
+    stars = 3 if (has_java and has_spring) else 2 if has_java else 1
+    if is_fresher: stars = min(5, stars + 1)
     return {
-        "title": job.get("title", "Unknown"),
-        "company": job.get("companyName", "Unknown"),
-        "location": job.get("location", "Unknown"),
-        "link": job.get("link", ""),
-        "date_posted": str(job.get("postedAt", "")),
-        "seniority": job.get("seniorityLevel", "Unknown"),
-        "employment_type": job.get("employmentType", "Unknown"),
-        "stars": 3,
-        "star_label": "★★★☆☆",
-        "skills_matched": [],
-        "skills_missing": ["Unable to analyze - API limit reached"],
-        "is_fresher_friendly": False,
-        "fresher_reason": "Could not analyze due to API rate limits.",
-        "verdict": "Skipped analysis due to API rate limiting.",
-        "apply_priority": "SKIP",
+        "title":             job.get("title", ""),
+        "company":           job.get("companyName", ""),
+        "location":          job.get("location", ""),
+        "link":              job.get("link", ""),
+        "date_posted":       str(job.get("postedAt", "")),
+        "seniority":         job.get("seniorityLevel", ""),
+        "employment_type":   job.get("employmentType", ""),
+        "stars":             stars,
+        "star_label":        "★" * stars + "☆" * (5 - stars),
+        "skills_matched":    ["Java", "Spring Boot"] if has_spring else ["Java"] if has_java else [],
+        "skills_missing":    ["Microservices", "Docker", "Kafka"],
+        "is_fresher_friendly": is_fresher,
+        "fresher_reason":    "Fresher keywords detected." if is_fresher else "Experience required.",
+        "verdict":           "Groq analysis unavailable — basic keyword match used.",
+        "apply_priority":    "STRONG CONSIDER" if stars >= 4 else "STRETCH GOAL" if stars == 3 else "SKIP",
     }
 
 
 def analyze_jobs(jobs: list[dict]) -> list[dict]:
-    """Send jobs to OpenAI in batches, gracefully handle rate limits."""
+    """Send ALL jobs to Groq in one request. Falls back gracefully on rate limit."""
 
-    # Trim descriptions to avoid token overload
+    # Trim descriptions aggressively — 400 chars is plenty for matching
     slim_jobs = []
     for j in jobs:
         slim_jobs.append({
@@ -89,107 +93,82 @@ def analyze_jobs(jobs: list[dict]) -> list[dict]:
             "date_posted":     str(j.get("postedAt", "")),
             "seniority":       j.get("seniorityLevel", ""),
             "employment_type": j.get("employmentType", ""),
-            "description":     (j.get("descriptionText") or "")[:500],
+            "description":     (j.get("descriptionText") or "")[:400],
         })
 
-    # Process in batches of 10 jobs
-    batch_size = 10
-    all_analyzed = []
-    failed_jobs = []
-    
-    for batch_idx in range(0, len(slim_jobs), batch_size):
-        batch = slim_jobs[batch_idx:batch_idx + batch_size]
-        resume_trimmed = RESUME_TEXT[:2000]
-        
-        user_prompt = USER_PROMPT_TEMPLATE.format(
-            resume=resume_trimmed,
-            count=len(batch),
-            jobs_json=json.dumps(batch, indent=2),
-        )
+    prompt = USER_PROMPT_TEMPLATE.format(
+        resume=RESUME_TEXT,
+        count=len(slim_jobs),
+        jobs_json=json.dumps(slim_jobs, indent=1),
+    )
 
-        print(f"[analyze] Sending batch {batch_idx // batch_size + 1} ({len(batch)} jobs) to OpenAI ...")
+    print(f"[analyze] Sending all {len(slim_jobs)} jobs to Groq ({GROQ_MODEL}) in one request ...")
 
-        # Retry with exponential backoff
-        max_retries = 3
-        success = False
-        
-        for attempt in range(max_retries):
-            try:
-                response = requests.post(
-                    OPENAI_URL,
-                    headers={
-                        "Authorization": f"Bearer {OPENAI_API_KEY}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": OPENAI_MODEL,
-                        "temperature": 0.3,
-                        "max_tokens": 8000,
-                        "messages": [
-                            {"role": "system", "content": SYSTEM_PROMPT},
-                            {"role": "user", "content": user_prompt},
-                        ],
-                    },
-                    timeout=120,
-                )
-                response.raise_for_status()
-                
-                raw_text = response.json()["choices"][0]["message"]["content"].strip()
-                
-                # Strip markdown fences if model adds them
-                if raw_text.startswith("```"):
-                    raw_text = raw_text.split("\n", 1)[1]
-                    raw_text = raw_text.rsplit("```", 1)[0]
+    # Exponential backoff: wait 15s, 30s, 60s between retries
+    wait_times = [15, 30, 60]
 
-                batch_analyzed = json.loads(raw_text)
-                all_analyzed.extend(batch_analyzed)
-                print(f"[analyze] Batch complete. Total analyzed so far: {len(all_analyzed)}")
-                success = True
-                break  # Success, exit retry loop
-                
-            except requests.exceptions.HTTPError as e:
-                if response.status_code == 429:
-                    wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
-                    if attempt < max_retries - 1:
-                        print(f"[analyze] ⚠️  Rate limited (429). Waiting {wait_time}s before retry...")
-                        time.sleep(wait_time)
-                    else:
-                        print(f"[analyze] ❌ Rate limit exceeded after {max_retries} retries. Creating fallback entries for {len(batch)} jobs...")
-                        # Add fallback entries for this batch
-                        for job in batch:
-                            fallback = create_fallback_job(job)
-                            all_analyzed.append(fallback)
-                            failed_jobs.append(job.get("title", "Unknown"))
-                else:
-                    print(f"[analyze] ❌ API error: {e}. Creating fallback entries for {len(batch)} jobs...")
-                    # Add fallback entries for this batch
-                    for job in batch:
-                        fallback = create_fallback_job(job)
-                        all_analyzed.append(fallback)
-                        failed_jobs.append(job.get("title", "Unknown"))
-                    break
-                    
-            except Exception as e:
-                print(f"[analyze] ❌ Unexpected error: {e}. Creating fallback entries for {len(batch)} jobs...")
-                # Add fallback entries for this batch
-                for job in batch:
-                    fallback = create_fallback_job(job)
-                    all_analyzed.append(fallback)
-                    failed_jobs.append(job.get("title", "Unknown"))
-                break
-    
-    print(f"[analyze] Analysis complete. {len(all_analyzed)} jobs processed.")
-    if failed_jobs:
-        print(f"[analyze] ⚠️  {len(failed_jobs)} jobs skipped due to API limits: {', '.join(failed_jobs[:5])}{'...' if len(failed_jobs) > 5 else ''}")
-    
-    return all_analyzed
+    for attempt, wait in enumerate(wait_times, 1):
+        try:
+            response = requests.post(
+                GROQ_URL,
+                headers={
+                    "Authorization": f"Bearer {GROQ_API_KEY}",
+                    "Content-Type":  "application/json",
+                },
+                json={
+                    "model":       GROQ_MODEL,
+                    "temperature": 0.2,
+                    "max_tokens":  8000,
+                    "messages": [
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user",   "content": prompt},
+                    ],
+                },
+                timeout=120,
+            )
+
+            if response.status_code == 429:
+                print(f"[analyze] ⚠️  Rate limited (429). Waiting {wait}s before retry {attempt}/{len(wait_times)} ...")
+                time.sleep(wait)
+                continue
+
+            response.raise_for_status()
+
+            raw = response.json()["choices"][0]["message"]["content"].strip()
+
+            # Strip markdown fences if model adds them
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[1]
+                raw = raw.rsplit("```", 1)[0].strip()
+
+            analyzed = json.loads(raw)
+            print(f"[analyze] ✅ Groq returned analysis for {len(analyzed)} jobs")
+            return analyzed
+
+        except json.JSONDecodeError as e:
+            print(f"[analyze] ⚠️  JSON parse error on attempt {attempt}: {e}")
+            if attempt < len(wait_times):
+                time.sleep(wait)
+            continue
+
+        except Exception as e:
+            print(f"[analyze] ⚠️  Error on attempt {attempt}: {e}")
+            if attempt < len(wait_times):
+                time.sleep(wait)
+            continue
+
+    # All retries failed — use keyword fallback for all jobs
+    print(f"[analyze] ❌ Groq unavailable after {len(wait_times)} attempts. Using keyword fallback for all jobs.")
+    results = [_fallback_entry(j) for j in jobs]
+    results.sort(key=lambda x: x["stars"], reverse=True)
+    return results
 
 
 if __name__ == "__main__":
     dummy = [{
         "title": "Java Developer", "companyName": "TestCo",
         "location": "Hyderabad", "link": "https://linkedin.com",
-        "postedAt": "2026-07-01", "seniorityLevel": "Entry level",
+        "postedAt": "2026-07-03", "seniorityLevel": "Entry level",
         "employmentType": "Full-time",
         "descriptionText": "We need Java Spring Boot developer, 0-1 yr exp, REST APIs, MySQL."
     }]
