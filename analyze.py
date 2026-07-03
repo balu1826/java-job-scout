@@ -14,9 +14,9 @@ import time
 import requests
 from pathlib import Path
 
-GROQ_API_KEY = os.environ["GROQ_API_KEY"]
-GROQ_MODEL   = "llama-3.3-70b-versatile"
-GROQ_URL     = "https://api.groq.com/openai/v1/chat/completions"
+OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
+OPENAI_MODEL   = "gpt-4o-mini"  # or "gpt-4", "gpt-3.5-turbo", etc.
+OPENAI_URL     = "https://api.openai.com/v1/chat/completions"
 
 RESUME_TEXT  = Path("resume.txt").read_text()
 
